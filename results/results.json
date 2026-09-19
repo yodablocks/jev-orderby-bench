@@ -140,6 +140,46 @@
       "tied_pairs": 806,
       "auc": 0.9637062193406745
     },
+    "sort_key_resolution": {
+      "n": 360,
+      "distinct_values": 45,
+      "decimal_places": 2,
+      "tied_pair_fraction": 0.2157226864747756,
+      "largest_tie_group": 154,
+      "largest_tie_value": 0.01,
+      "rows_at_max": 53,
+      "max_value": 0.99,
+      "order_by_desc_limit": {
+        "10": {
+          "value_at_cut": 0.99,
+          "tie_group_at_cut": 53,
+          "rows_strictly_above_cut": 0,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 10
+        },
+        "20": {
+          "value_at_cut": 0.99,
+          "tie_group_at_cut": 53,
+          "rows_strictly_above_cut": 0,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 20
+        },
+        "50": {
+          "value_at_cut": 0.99,
+          "tie_group_at_cut": 53,
+          "rows_strictly_above_cut": 0,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 50
+        },
+        "100": {
+          "value_at_cut": 0.73,
+          "tie_group_at_cut": 2,
+          "rows_strictly_above_cut": 99,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 1
+        }
+      }
+    },
     "calibration_note": "Brier/ECE exclude near-miss groups whose negative label is arguable; ranking uses all rows.",
     "by_probe": {
       "space": {
@@ -411,6 +451,46 @@
       "inversion_rate": 0.14329439996082177,
       "comparable_pairs": 40839,
       "tied_pairs": 4258
+    },
+    "sort_key_resolution": {
+      "n": 360,
+      "distinct_values": 88,
+      "decimal_places": 2,
+      "tied_pair_fraction": 0.1503868771278242,
+      "largest_tie_group": 125,
+      "largest_tie_value": 0.0,
+      "rows_at_max": 54,
+      "max_value": 3.0,
+      "order_by_desc_limit": {
+        "10": {
+          "value_at_cut": 3.0,
+          "tie_group_at_cut": 54,
+          "rows_strictly_above_cut": 0,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 10
+        },
+        "20": {
+          "value_at_cut": 3.0,
+          "tie_group_at_cut": 54,
+          "rows_strictly_above_cut": 0,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 20
+        },
+        "50": {
+          "value_at_cut": 3.0,
+          "tie_group_at_cut": 54,
+          "rows_strictly_above_cut": 0,
+          "cuts_inside_tie": true,
+          "arbitrary_slots": 50
+        },
+        "100": {
+          "value_at_cut": 2.22,
+          "tie_group_at_cut": 1,
+          "rows_strictly_above_cut": 99,
+          "cuts_inside_tie": false,
+          "arbitrary_slots": 0
+        }
+      }
     },
     "note": "Brier/ECE omitted: they are classification metrics and do not apply to a continuous score. ranking_vs_label is binary so it cannot detect mis-ordering within the positives; see ranking_vs_ordinal_stratum for graded ordering.",
     "stratum_means": {
