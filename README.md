@@ -56,6 +56,16 @@ numbers rather than a reproduction of that one. Every method choice is in
 the repo and the run is reproducible, so disagree with the numbers by
 re-running rather than by taking anyone's word for it, including mine.
 
+[commitjev](https://github.com/yodablocks/commitjev) is a tool built on
+the measured model, and it is mine too, so read it as an application of
+these numbers rather than independent corroboration of them. Two results
+below decide its shape: it sends one commit per request rather than
+batching, because batched rows fail the ranking gate that one-per-request
+passes, and it thresholds individual probabilities rather than sorting by
+them, because the scale is coarse enough that a sorted page is partly
+arbitrary. It also ships its own labeled cases, on the argument made here
+that a thing built on Jev should say what it catches.
+
 **Reproduce:** `python3 harness/run_calibration.py` with a key. At the
 published price of $0.042 per million input tokens (output is free), the
 full run costs about **$0.013**. Responses are cached locally, so once
