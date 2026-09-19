@@ -324,7 +324,7 @@ def main():
 
     # load_env must not let a stale file override a real exported var.
     import os as _os
-    env_file = repo / "tools" / "duckdb-jev" / ".env"
+    env_file = C.PROJECT_ROOT / ".env"
     if env_file.is_file():
         _os.environ["TYPESAFE_AI_API_KEY"] = "exported-wins"
         C.load_env()
