@@ -99,7 +99,7 @@ def negate(question: str) -> str:
     questions_for, which triangulates.
     """
     q = question.strip().rstrip("?")
-    for prefix in ("Is this message ", "Is this "):
+    for prefix in ("Is this message ", "Is this product ", "Is this "):
         if q.startswith(prefix):
             return f"{prefix}NOT {q[len(prefix):]}?"
     return f"Is it NOT the case that: {q}?"

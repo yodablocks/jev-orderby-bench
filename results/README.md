@@ -11,5 +11,8 @@ fresh requests, ~359k tokens). `--analyze-only` recomputes every metric
 from the cached responses and carries that block forward unchanged, so a
 free re-analysis does not erase what the paid run cost.
 
+`esci.json` and `reliability_esci.png` are the hard probe (Amazon ESCI,
+306 rows, 30 queries); `shapes.json` the request-shape comparison.
+
 Nothing here contains corpus text or raw model responses. Those live in
 `.data/jev-calibration/` (gitignored); see the top-level README for why.
