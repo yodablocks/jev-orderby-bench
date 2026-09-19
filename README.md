@@ -1,12 +1,37 @@
-# duckdb-jev
+# jev-orderby-bench
 
-DuckDB scalar functions over TypeSafe AI's Jev model, so unstructured text
-columns can be filtered and sorted like numeric ones.
+Does `ORDER BY` over a Jev probability put rows in a defensible order?
+An independent measurement of TypeSafe AI's Jev (`jev-1.13.0`) on the
+properties a semantic sort actually depends on: pairwise inversion rate,
+Score ordinality against a graded target, and whether the probabilities
+move with evidence or with wording. Calibration (ECE, Brier) is reported
+too, but it is not the gate on its own: a model can be well calibrated in
+aggregate and still invert the pairs a sorted page shows.
 
-**Status (2026-09-18): Phase 1 complete. `jev-1.13.0` passes all six gate
-conditions. Phase 2 is unblocked.** See [Results](#results).
+**Headline (2026-09-18): `jev-1.13.0` passes all six pre-registered gate
+conditions on 360 human-labeled rows.** Boolean inversion rate 0.036;
+Score ordinal inversion 0.143 against a 0.15 threshold, the weak link and
+the sort key; negation asymmetry 0.016 but indistinguishable from plain
+paraphrase sensitivity; underconfident in 8 of 10 bins. See
+[Results](#results).
 
-Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row).
+Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row), about $0.013.
+
+## Where this sits
+
+Three DuckDB integrations for Jev shipped in the week of its release:
+[colliber/duckdb-jev](https://github.com/colliber/duckdb-jev),
+[recodelabs/duckdb-jev](https://github.com/recodelabs/duckdb-jev) and
+[Query-farm/vgi-typesafe](https://github.com/Query-farm/vgi-typesafe),
+plus [pg-jev](https://github.com/realZachi/pg-jev) for Postgres. All
+expose `ORDER BY` over a Jev probability; none ships a measurement of
+whether that order is defensible. The vendor's
+[evals](https://evals.typesafe.ai/) publish accuracy, cost and time
+against labels averaged from two frontier models, and no calibration
+figure. This repo is the measurement, not a fourth extension.
+`harness/udf.py` is a reference for consuming the numbers at the SQL
+boundary, gated on the results; use one of the extensions above for real
+work.
 
 Jev's SDK had its first public release on 2026-09-14 and the only figure
 its vendor publishes is 67.8% agreement against averaged frontier
@@ -85,7 +110,7 @@ only the scoring pass needs one. See [Running it](#running-it).
 
 ---
 
-## Why calibration is Phase 1 and not Phase 2
+## Why the measurement comes before the SQL
 
 The product is `ORDER BY` over a semantic score. If the probabilities are
 not calibrated, the sort key is a meaningless number and every query fails
@@ -251,8 +276,9 @@ through, and `jev_score_val` is the accessor `ORDER BY` actually sorts on.
 
 ## Running it
 
-Phase 1 needs **no new packages**: numpy, scipy, sklearn, matplotlib and
-requests are already present. `duckdb` is a Phase 2 dependency only.
+The harness needs **no new packages**: numpy, scipy, sklearn, matplotlib
+and requests are already present. `duckdb` is needed only by
+`harness/udf.py`.
 
 ### The API key
 
@@ -294,13 +320,13 @@ python3 harness/run_calibration.py           # full run
 python3 harness/run_calibration.py --analyze-only   # recompute, no spend
 ```
 
-Phase 2 additionally needs `pip install duckdb` (run it yourself; this
+`harness/udf.py` additionally needs `pip install duckdb` (run it yourself; this
 repo does not install packages autonomously).
 
 ## Execution layer
 
-Built in Phase 1 rather than retrofitted in Phase 3, because all four are
-cheaper to build now and the calibration run needs them anyway.
+Built into the harness rather than retrofitted later, because all four
+are cheaper to build now and the calibration run needs them anyway.
 
 - **Batching.** Every question for a row goes in one request. Jev answers
   independent questions against one state in a single parallel pass, so
@@ -322,10 +348,15 @@ Token usage is recorded per call from the first request. TypeSafe
 publishes pricing ($0.042 per million input tokens, output free) and rate
 limits (250k tokens/s, 1,200 requests/min, 64k context with 32k for state
 plus the longest question) at docs.typesafe.ai/models, but the limits are
-stated to adjust with demand, so the Phase 3 cost ceiling is calibrated
+stated to adjust with demand, so a production cost ceiling is calibrated
 from usage we measure ourselves rather than from the published figures.
 
-## SQL surface (Phase 2)
+## Consuming the numbers in SQL (reference only)
+
+`harness/udf.py` registers these as DuckDB Python scalar functions. It
+exists to show the shape the numbers should take at the SQL boundary,
+not to compete with the native extensions above; the design points
+below apply to any of them.
 
 ```
 jev_bool(text, question)      -> STRUCT(value BOOLEAN, prob DOUBLE)
@@ -390,7 +421,7 @@ harness/corpus.py           stratified corpus builder, provenance notes
 harness/client.py           batching, cache, budget, retries, metering
 harness/metrics.py          calibration + ranking + invariants + gate
 harness/run_calibration.py  scoring run, analysis, reliability diagram
-harness/udf.py              Phase 2 DuckDB functions (gated on Phase 1)
+harness/udf.py              reference DuckDB functions (gated on results.json)
 harness/test_metrics.py     known-answer tests for every metric
 harness/test_pipeline.py    end-to-end test against a mock Jev server,
                             plus secret-hygiene assertions
