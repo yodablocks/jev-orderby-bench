@@ -16,7 +16,10 @@ paraphrase sensitivity; underconfident in 8 of 10 bins. And the sort
 key itself is coarse: probabilities come back at two decimals, 360 rows
 produced 45 distinct values, and 53 rows tie at 0.99, so
 `ORDER BY prob DESC LIMIT 20` returns 20 of those 53 in whatever order
-the engine left them. See [Results](#results).
+the engine left them. And the integration changes the numbers: the same
+rows sent through recodelabs' default 40-row batching **fail the ranking
+gate** (inversion 0.171 against 0.15) that they pass one row per
+request. See [Results](#results) and [Request shape](#request-shape-the-integration-changes-the-numbers).
 
 Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row), about $0.013.
 
@@ -34,7 +37,7 @@ against labels averaged from two frontier models, and no calibration
 figure. This repo is the measurement, not a fourth extension.
 `harness/udf.py` is a reference for consuming the numbers at the SQL
 boundary, gated on the results; use one of the extensions above for real
-work.
+work, with the batch-size caveat measured below.
 
 Jev's SDK had its first public release on 2026-09-14 and the only figure
 its vendor publishes is 67.8% agreement against averaged frontier
@@ -136,6 +139,68 @@ The corpus, client, metrics, gate and notebook all run without a key;
 only the scoring pass needs one. See [Running it](#running-it).
 
 ---
+
+## Request shape: the integration changes the numbers
+
+The same row and the same question reach the API in a different shape
+depending on which integration sends them. Three shapes were measured
+on the same 360 rows against the cached baseline (`harness/run_shapes.py`,
+aggregates in `results/shapes.json`):
+
+| | State | Question | Rows per request |
+|---|---|---|---|
+| **A** this harness | the text | instructions + criteria | 1 |
+| **B** colliber | the text | criteria only; its client never sends `instructions` | 1 (replayed through our client: its binary is built for DuckDB 1.5.4) |
+| **C** recodelabs | `{condition, rows[≤40]}` | one generic noul per `rows[i]` | 40 (its default `jev_batch_size`), run through the extension itself |
+| **C1** recodelabs | as C | as C | 1 (`SET jev_batch_size = 1`) |
+
+`jev_bool` against A, 360 rows:
+
+| vs A | mean \|Δp\| | rows moved > 0.20 | decisions flipped at 0.5 | Spearman | ECE | Brier | inversion | gate |
+|---|---|---|---|---|---|---|---|---|
+| **B** criteria only | 0.041 | 0% | 1 | 0.915 | 0.068 | 0.056 | 0.035 | pass |
+| **C** batch 40 | **0.264** | **51%** | **77** | **0.579** | 0.089 | **0.159** | **0.171** | **fail** |
+| **C1** batch 1 | 0.027 | 3% | 6 | 0.932 | 0.047 | 0.053 | 0.038 | pass |
+
+`jev_score` follows the same pattern: Spearman against A of 0.950 (B),
+**0.506** (C), 0.974 (C1); inversion 0.037, **0.193**, 0.038.
+
+**Batching 40 rows into one state is what breaks it, not the wording.**
+C1 sends the identical question text and state layout as C and tracks
+the baseline; only the number of rows sharing a state differs. The
+damage is a position effect: rows in slots 0 to 7 of the batch move by
+0.049 on average, slots 16 to 23 by 0.31, slots 24 to 39 by about 0.42.
+It is not a row-to-answer mapping error (the best circular shift of C
+against C1 is zero on every probe) and it is not noise: positives are
+pulled down by 0.17 and negatives up by 0.27, so 159 of 360 rows land in
+the 0.3 to 0.7 band where the baseline has 11. The model stops
+discriminating for rows deep in a state of about 12,600 input tokens,
+well under the documented 32k limit. recodelabs' README does say that
+"the same city can score differently in a different table"; the
+magnitude is what is new.
+
+**Dropping `instructions` costs calibration, not ranking.** B keeps the
+order (inversion 0.035) but ECE rises from 0.045 to 0.068, and the top
+of the ranking changes character: one row at the maximum of 0.96 and 58
+distinct values instead of 53 rows tied at 0.99. The two integrations
+therefore disagree about *which rows tie*, which decides what
+`LIMIT k` returns.
+
+**Cost and cache, as measured through the extension.** C: 18 requests,
+226,537 input tokens, $0.0095. C1: 720 requests, 417,994 input tokens,
+$0.0176. Batching halves the token bill and pays for it in ranking
+quality. A forced replay of every row made no new requests in either
+mode, so the per-row cache works as described; its `cache_hits` counter
+stayed at 0 throughout, so that field counts something other than
+replay hits.
+
+**Mitigation.** With recodelabs, `SET jev_batch_size = 1` (or a small
+value; the shift is under 0.05 for the first eight slots, and the shape
+of the curve between 1 and 40 is not measured here). With any
+integration that packs rows into one state, measure the position effect
+on your own data before sorting on the result. colliber sends one row
+per request and does not have this problem; Query-farm/vgi-typesafe
+was not measured.
 
 ## Why the measurement comes before the SQL
 
@@ -454,12 +519,14 @@ harness/client.py           batching, cache, budget, retries, metering
 harness/metrics.py          calibration + ranking + invariants + gate
 harness/run_calibration.py  scoring run, analysis, reliability diagram
 harness/udf.py              reference DuckDB functions (gated on results.json)
+harness/run_shapes.py       request-shape comparison across integrations
 harness/test_metrics.py     known-answer tests for every metric
 harness/test_pipeline.py    end-to-end test against a mock Jev server,
                             plus secret-hygiene assertions
 .env.example                copy to .env and add your key (.env is ignored)
 notebook/calibration.ipynb  the publishable artifact
 results/                    results.json + reliability.png (after a run)
+                            shapes.json (after run_shapes.py)
 ```
 
 Corpus and cached responses live in `.data/jev-calibration/` (gitignored):
