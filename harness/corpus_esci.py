@@ -50,6 +50,7 @@ PRODUCTS = ESCI_DIR / "shopping_queries_dataset_products.parquet"
 # colour) is used when the original is absent, and which one was used is
 # recorded in every row so the provenance travels with the corpus.
 PRODUCTS_MIRROR = ESCI_DIR / "products_us_mirror.parquet"
+CORPUS_OUT = ESCI_DIR / "corpus.jsonl"
 
 GRADE = {"I": 0, "C": 1, "S": 2, "E": 3}
 PER_QUERY = {"E": 4, "S": 4, "C": 2, "I": 2}

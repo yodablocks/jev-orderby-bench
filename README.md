@@ -300,8 +300,13 @@ result shows wording matters; product text was truncated; and the
 product fields came from a Hugging Face re-encoding of Amazon's file
 (`spacemanidol/ESCI-product-dataset-corpus-us`, same product IDs)
 because the 1.1 GB original downloads at 60 KB/s from here. The source
-is recorded in every corpus row; a field-by-field check of the 306
-products against the original is pending its download.
+is recorded in every corpus row, and once the original had downloaded,
+`harness/verify_esci_products.py` compared all 306 products against it:
+title, brand, bullet points and description identical on every row;
+colour differs on one row (product B07WZVBDY9, "Blue/1Set" in the
+re-encoding, "Brown/1set" in the original). One field of one row, so
+the results stand as published; rebuilding from the original would
+change that one state string.
 
 ## Why the measurement comes before the SQL
 
@@ -632,6 +637,7 @@ harness/run_shapes.py       request-shape comparison across integrations
 harness/corpus_esci.py      hard-probe corpus from Amazon ESCI
 harness/run_esci.py         hard-probe run: graded ranking, within-query
 harness/test_esci.py        offline test of the ESCI runner
+harness/verify_esci_products.py  corpus products vs Amazon's original file
 harness/test_metrics.py     known-answer tests for every metric
 harness/test_pipeline.py    end-to-end test against a mock Jev server,
                             plus secret-hygiene assertions
