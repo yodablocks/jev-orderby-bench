@@ -151,6 +151,59 @@ def compare(name, base, other, rows) -> dict:
     return rep
 
 
+def position_analysis(base, other, rows, batch_size=40) -> dict:
+    """Does the shift depend on where the row sat inside the batched state?
+
+    The extension fills batches in table order per question, so a row's
+    slot is its index within its probe, modulo the batch size. If the
+    shift grows with the slot, the model is losing the rows deep in the
+    state; if it were a row-to-answer mapping error the shift would be
+    flat and uncorrelated with the slot.
+    """
+    by_id = {r["row_id"]: r for r in rows}
+    slot = {}
+    for probe in PROBES:
+        ids = [r["row_id"] for r in rows if r["probe"] == probe]
+        for i, rid in enumerate(ids):
+            slot[rid] = i % batch_size
+    ids = [i for i in slot if i in base and i in other]
+    d = {i: other[i]["noul"] - base[i]["noul"] for i in ids}
+    octiles = []
+    for lo in range(0, batch_size, 8):
+        sel = [i for i in ids if lo <= slot[i] < lo + 8]
+        octiles.append({"slots": [lo, min(lo + 7, batch_size - 1)], "n": len(sel),
+                        "mean_abs_shift": float(np.mean([abs(d[i]) for i in sel])),
+                        "signed_shift": float(np.mean([d[i] for i in sel]))})
+    pos = [i for i in ids if by_id[i]["label"]]
+    neg = [i for i in ids if not by_id[i]["label"]]
+    # Is it a within-batch shuffle? Compare other vs a batch-1 run at the
+    # same row against the best circular shift of +-3 rows.
+    return {
+        "batch_size": batch_size,
+        "signed_mean_shift": float(np.mean(list(d.values()))),
+        "by_slot_octile": octiles,
+        "signed_shift_positives": float(np.mean([d[i] for i in pos])),
+        "signed_shift_negatives": float(np.mean([d[i] for i in neg])),
+        "rows_in_0.3_to_0.7": {
+            "base": int(sum(0.3 <= base[i]["noul"] <= 0.7 for i in ids)),
+            "other": int(sum(0.3 <= other[i]["noul"] <= 0.7 for i in ids)),
+        },
+    }
+
+
+def shuffle_check(c, c1, rows) -> dict:
+    """Best circular shift of C against C1 per probe. Zero means answers
+    sit on the right rows and the difference is not a mapping error."""
+    out = {}
+    for probe in PROBES:
+        ids = [r["row_id"] for r in rows if r["probe"] == probe and r["row_id"] in c and r["row_id"] in c1]
+        a = np.array([c[i]["noul"] for i in ids]); b = np.array([c1[i]["noul"] for i in ids])
+        best = max(((float(np.corrcoef(np.roll(a, k), b)[0, 1]), k) for k in range(-3, 4)))
+        out[probe] = {"corr_same_row": float(np.corrcoef(a, b)[0, 1]),
+                      "best_shift": best[1], "corr_at_best_shift": best[0]}
+    return out
+
+
 def baseline_from_cache(rows, client) -> dict:
     from client import Cache
     out = {}
@@ -167,6 +220,8 @@ def main():
     ap.add_argument("--limit", type=int)
     ap.add_argument("--skip-extension", action="store_true")
     ap.add_argument("--token-budget", type=int, default=2_000_000)
+    ap.add_argument("--analyze-only", action="store_true",
+                    help="recompute from .data/shapes_raw.json; no API, no extension")
     args = ap.parse_args()
 
     rows = load_corpus()
@@ -179,8 +234,13 @@ def main():
     if len(base) < len(rows):
         sys.exit("baseline incomplete: run run_calibration.py first")
 
-    print("B colliber shape (criteria only, no instructions)...")
-    b = run_shape_b(rows, client)
+    raw_path = DATA / "shapes_raw.json"
+    prior = json.loads(raw_path.read_text()) if args.analyze_only else None
+    if prior is None:
+        print("B colliber shape (criteria only, no instructions)...")
+        b = run_shape_b(rows, client)
+    else:
+        b = prior["B"]
     u = client.usage
     print(f"  B usage: {u.requests} requests, {u.total_tokens:,} tokens")
 
@@ -197,22 +257,31 @@ def main():
                     "output_tokens": u.output_tokens},
     }
 
-    if not args.skip_extension:
+    if prior is not None:
+        c, c1 = prior["C"], prior["C1"]
+        stats_c, stats_c1 = prior.get("stats_C"), prior.get("stats_C1")
+    elif not args.skip_extension:
         if not EXT.exists():
             sys.exit(f"recodelabs extension not found at {EXT}")
         print("C recodelabs extension, batch 40...")
         c, stats_c = run_shape_c(rows, 40)
-        report["C_vs_A"] = compare("C", base, c, rows)
-        report["extension_stats_C"] = stats_c
         print("C1 recodelabs extension, batch 1...")
         c1, stats_c1 = run_shape_c(rows, 1)
-        report["C1_vs_A"] = compare("C1", base, c1, rows)
-        report["C1_vs_C"] = compare("C1vsC", c, c1, rows)
-        report["extension_stats_C1"] = stats_c1
         # Keep the raw per-row numbers out of the repo: they are derived
         # from corpus text. Aggregates only.
-        (DATA / "shapes_raw.json").write_text(json.dumps(
-            {"B": b, "C": c, "C1": c1}, indent=1))
+        raw_path.write_text(json.dumps(
+            {"B": b, "C": c, "C1": c1, "stats_C": stats_c, "stats_C1": stats_c1}, indent=1))
+    else:
+        c = c1 = None
+    if c is not None:
+        report["C_vs_A"] = compare("C", base, c, rows)
+        report["C1_vs_A"] = compare("C1", base, c1, rows)
+        report["C1_vs_C"] = compare("C1vsC", c, c1, rows)
+        report["C_position_effect"] = position_analysis(base, c, rows, 40)
+        report["C_shuffle_check"] = shuffle_check(c, c1, rows)
+        if stats_c:
+            report["extension_stats_C"] = stats_c
+            report["extension_stats_C1"] = stats_c1
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "shapes.json").write_text(json.dumps(report, indent=2))
@@ -231,6 +300,15 @@ def main():
               f"  top-group jaccard {n['top_group']['jaccard']:.2f}")
         print(f"  score: mean|d| {s['mean_abs_diff']:.3f}  p95 {s['p95_abs_diff']:.2f}  >5%: {s['frac_changed_over_0.05']:.1%}"
               f"  spearman {s['spearman_between_shapes']:.3f}  inversion {s['ranking_vs_label']['inversion_rate']:.4f}")
+    if "C_position_effect" in report:
+        pe = report["C_position_effect"]
+        print(f"\nC position effect (batch 40): signed mean {pe['signed_mean_shift']:+.3f}, "
+              f"positives {pe['signed_shift_positives']:+.3f}, negatives {pe['signed_shift_negatives']:+.3f}, "
+              f"rows in 0.3-0.7: {pe['rows_in_0.3_to_0.7']['base']} -> {pe['rows_in_0.3_to_0.7']['other']}")
+        for o in pe["by_slot_octile"]:
+            print(f"   slots {o['slots'][0]:2d}-{o['slots'][1]:2d}: mean|shift| {o['mean_abs_shift']:.3f}  signed {o['signed_shift']:+.3f}")
+        print("C shuffle check (best shift should be 0):",
+              {p: v["best_shift"] for p, v in report["C_shuffle_check"].items()})
     for k in ("extension_stats_C", "extension_stats_C1"):
         if k in report:
             f, s2 = report[k]["after_first_pass"], report[k]["after_replay"]
