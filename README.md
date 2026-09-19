@@ -12,8 +12,11 @@ aggregate and still invert the pairs a sorted page shows.
 conditions on 360 human-labeled rows.** Boolean inversion rate 0.036;
 Score ordinal inversion 0.143 against a 0.15 threshold, the weak link and
 the sort key; negation asymmetry 0.016 but indistinguishable from plain
-paraphrase sensitivity; underconfident in 8 of 10 bins. See
-[Results](#results).
+paraphrase sensitivity; underconfident in 8 of 10 bins. And the sort
+key itself is coarse: probabilities come back at two decimals, 360 rows
+produced 45 distinct values, and 53 rows tie at 0.99, so
+`ORDER BY prob DESC LIMIT 20` returns 20 of those 53 in whatever order
+the engine left them. See [Results](#results).
 
 Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row), about $0.013.
 
@@ -64,16 +67,20 @@ which are governed by TypeSafe AI's terms.
 | | resolution | 0.1820 | > 0 ✓ |
 | | AUC | 0.9637 | |
 | | inversion rate | **0.0363** | ≤ 0.15 ✓ |
+| | distinct values / tied pairs | 45 / **21.6%** | |
+| | rows tied at the top (0.99) | **53** | |
 | `jev_choice` | accuracy | 0.8754 | |
 | | confidence ECE | 0.0769 | ≤ 0.10 ✓ |
 | `jev_score` | ordinal inversion | **0.1433** | ≤ 0.15 ✓ |
 | | binary inversion | 0.0370 | |
+| | distinct values / tied pairs | 88 / 15.0% | |
+| | rows tied at the top (3.0) | 54 | |
 | Invariant | negation \|P(q)+P(¬q)−1\| | 0.0161 | ≤ 0.15 ✓ |
 | | rubric mirror error | 0.0223 (0.74% of scale) | |
 
 Per probe (`jev_bool` ECE): medical 0.030, forsale 0.042, space 0.062.
 
-### Three things the headline number hides
+### Four things the headline number hides
 
 **1. The negation result is not about negation.** The jaggedness page
 disclaims `P(q) = 1 - P(not q)`, and the identity in fact holds well:
@@ -104,6 +111,26 @@ before trusting production sorting. The binary figure of 0.0370 looks
 far healthier and should not be quoted in its place: it cannot see
 mis-ordering within the positives, which is the graded ordering that
 `ORDER BY` actually exploits.
+
+**4. The sort key is quantized to two decimals, and the top of the
+ranking is one big tie.** Jev returns probabilities at two decimal
+places. Over 360 rows `jev_bool` produced 45 distinct values; 21.6% of
+all row pairs tie exactly, 154 rows sit at 0.01 and 53 at 0.99. Score
+has the same shape: 88 distinct values, 54 rows tied at the maximum of
+3.0. SQL does not define the order of rows that tie on the sort key, so
+`ORDER BY prob DESC LIMIT 10`, `LIMIT 20` and `LIMIT 50` all cut inside
+the 53-way tie at 0.99 and return an engine-dependent sample of it, not
+a ranking. The inversion rate above cannot see this: it scores a tie as
+half-discordant, and the rows tied at 0.99 mostly share a label, so
+they are not comparable pairs. This is a property of the API's output,
+so it applies to every extension identically, including the
+`ORDER BY jev_prob(...) DESC LIMIT 20` pattern their READMEs show.
+Mitigations, in order of how much they help: treat `LIMIT k` as a
+filter (`WHERE prob >= 0.99`) and accept the whole group; break ties
+with a second, more specific question or a Score's confidence; at
+minimum add a deterministic secondary key (`ORDER BY prob DESC, id`) so
+the result is at least reproducible. `sort_key_resolution` in
+`results.json` reports the tie group at each cut.
 
 The corpus, client, metrics, gate and notebook all run without a key;
 only the scoring pass needs one. See [Running it](#running-it).
@@ -405,6 +432,11 @@ Score returns a probability-weighted mean over level **indices**, so an
   group choice), which inflates apparent miscalibration. The worst cases
   are held out of ECE (see above), but the remaining negatives are still
   "the author posted elsewhere", not "a human judged this not-about-X".
+- **The tie statistics are corpus-dependent; the quantization is not.**
+  Topic membership is easy, which crowds rows at 0.01 and 0.99. A harder
+  corpus would spread values across the range and shrink the top tie
+  group. Two-decimal output is a property of the API and caps the sort
+  key at 101 distinct values whatever the corpus.
 - **Invariants bound wording sensitivity, not correctness.** A model can
   be perfectly self-consistent and consistently wrong.
 - **Graded ranking is proxied, not measured directly.** The ordinal target
