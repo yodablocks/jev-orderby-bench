@@ -22,6 +22,7 @@ from metrics import (
     order_invariance,
     pairwise_inversions,
     rank_metrics,
+    sort_key_resolution,
 )
 
 failures = []
@@ -43,6 +44,30 @@ _bad = [n for n in range(1, 400)
         if _wilson(0, n)[0] > 0.0 or _wilson(n, n)[1] < 1.0]
 assert not _bad, f"Wilson interval excludes phat for n in {_bad[:5]}"
 print("PASS  wilson interval contains phat at 0/n and n/n for n < 400")
+
+# --- sort-key resolution -------------------------------------------------
+# Five rows tied at the top, two below. 21 pairs, C(5,2)=10 of them tied.
+# LIMIT 5 takes exactly the tie group: a ranking. LIMIT 3 cuts inside it:
+# 3 arbitrary slots drawn from 5 rows. LIMIT 6 takes the group plus the
+# next row: determined again.
+_r = sort_key_resolution([0.99] * 5 + [0.5, 0.1], ks=(3, 5, 6))
+check("resolution distinct", _r["distinct_values"], 3)
+check("resolution tied pair fraction", _r["tied_pair_fraction"], 10 / 21)
+check("resolution rows at max", _r["rows_at_max"], 5)
+check("resolution decimals", _r["decimal_places"], 2)
+assert _r["order_by_desc_limit"]["3"]["cuts_inside_tie"] is True
+check("resolution LIMIT 3 arbitrary slots", _r["order_by_desc_limit"]["3"]["arbitrary_slots"], 3)
+assert _r["order_by_desc_limit"]["5"]["cuts_inside_tie"] is False
+assert _r["order_by_desc_limit"]["6"]["cuts_inside_tie"] is False
+print("PASS  resolution: LIMIT inside a tie group is flagged, at its edge is not")
+# All distinct: no ties anywhere, every LIMIT is a ranking.
+_r = sort_key_resolution([0.9, 0.8, 0.7, 0.6], ks=(2,))
+check("resolution no ties", _r["tied_pair_fraction"], 0.0)
+assert _r["order_by_desc_limit"]["2"]["cuts_inside_tie"] is False
+# All identical: every pair tied, any LIMIT below n is arbitrary.
+_r = sort_key_resolution([0.5] * 4, ks=(2,))
+check("resolution all tied", _r["tied_pair_fraction"], 1.0)
+check("resolution all tied arbitrary slots", _r["order_by_desc_limit"]["2"]["arbitrary_slots"], 2)
 
 # --- Brier -------------------------------------------------------------
 # Perfect predictions -> 0. Maximally wrong -> 1.

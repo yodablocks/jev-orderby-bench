@@ -268,6 +268,9 @@ def analyze(rows, responses) -> dict:
             # is doing heavy lifting and should be stated prominently.
             "ece_all_rows_incl_ambiguous": M.ece(p_bool[ok], y[ok], n_bins=10)["ece"],
             "ranking": M.rank_metrics(p_bool[ok], y[ok]),
+            # Label-free: how many rows share a value, and whether an
+            # ORDER BY ... DESC LIMIT k cut lands inside a tie group.
+            "sort_key_resolution": M.sort_key_resolution(p_bool[ok]),
             "calibration_note": "Brier/ECE exclude near-miss groups whose "
                                 "negative label is arguable; ranking uses all rows.",
         }
@@ -422,6 +425,7 @@ def analyze(rows, responses) -> dict:
             "ranking_vs_label_all_rows": M.rank_metrics(sc[m], y[m]),
             # Graded ranking over 3 ordinal levels rather than 2.
             "ranking_vs_ordinal_stratum": M.rank_metrics(sc[mc], strat_rank[mc]),
+            "sort_key_resolution": M.sort_key_resolution(sc[m]),
             "note": "Brier/ECE omitted: they are classification metrics and "
                     "do not apply to a continuous score. ranking_vs_label is "
                     "binary so it cannot detect mis-ordering within the "

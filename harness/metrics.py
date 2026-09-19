@@ -182,6 +182,58 @@ def pairwise_inversions(scores, labels) -> dict:
     }
 
 
+def sort_key_resolution(values, ks=(10, 20, 50, 100)) -> dict:
+    """How much ordering information the sort key actually carries.
+
+    Independent of labels. ORDER BY over a probability only orders rows
+    whose probabilities differ; rows that share a value come back in
+    whatever order the engine's sort left them, which is not stable
+    across runs or thread counts. So for `ORDER BY p DESC LIMIT k` the
+    question is whether the cut at k falls inside a group of tied rows.
+    If it does, the result is a sample of that group, not a ranking.
+    """
+    v = np.asarray(values, float)
+    n = len(v)
+    if n == 0:
+        return {"n": 0}
+    uniq, counts = np.unique(v, return_counts=True)
+    pairs = n * (n - 1) // 2
+    tied = int(sum(c * (c - 1) // 2 for c in counts))
+    decimals = 0
+    for x in v:
+        s = f"{x:.10f}".rstrip("0").rstrip(".")
+        decimals = max(decimals, len(s.split(".")[1]) if "." in s else 0)
+    desc = np.sort(v)[::-1]
+    limits = {}
+    for k in ks:
+        if k > n:
+            continue
+        vk = desc[k - 1]                       # value at the cut
+        above = int((v > vk).sum())            # rows strictly better
+        group = int((v == vk).sum())           # rows tied at the cut
+        # The top-k is a ranking only if the tie group at the cut fits
+        # entirely inside it: above + group == k.
+        limits[str(k)] = {
+            "value_at_cut": float(vk),
+            "tie_group_at_cut": group,
+            "rows_strictly_above_cut": above,
+            "cuts_inside_tie": bool(above + group > k),
+            "arbitrary_slots": int(max(0, k - above)) if above + group > k else 0,
+        }
+    top = float(uniq[-1])
+    return {
+        "n": int(n),
+        "distinct_values": int(len(uniq)),
+        "decimal_places": int(decimals),
+        "tied_pair_fraction": float(tied / pairs) if pairs else float("nan"),
+        "largest_tie_group": int(counts.max()),
+        "largest_tie_value": float(uniq[counts.argmax()]),
+        "rows_at_max": int((v == top).sum()),
+        "max_value": top,
+        "order_by_desc_limit": limits,
+    }
+
+
 def rank_metrics(scores, labels) -> dict:
     s, y = np.asarray(scores, float), np.asarray(labels, float)
     out: dict = {}
