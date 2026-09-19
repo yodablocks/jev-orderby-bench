@@ -1,0 +1,12 @@
+# Secrets: never commit. Asserted by harness/test_pipeline.py.
+.env
+.env.*
+!.env.example
+
+# Response cache and corpus: build artifacts, and raw bodies contain
+# corpus text. Re-runs hit the cache and cost nothing.
+.data/
+
+__pycache__/
+*.pyc
+.DS_Store
