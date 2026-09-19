@@ -44,6 +44,12 @@ from client import repo_root
 ESCI_DIR = repo_root() / ".data" / "esci"
 EXAMPLES = ESCI_DIR / "shopping_queries_dataset_examples.parquet"
 PRODUCTS = ESCI_DIR / "shopping_queries_dataset_products.parquet"
+# The original products file is 1.1 GB behind GitHub LFS. A US-only
+# re-encoding of it (spacemanidol/ESCI-product-dataset-corpus-us on
+# Hugging Face; same product_id, title, description, bullets, brand,
+# colour) is used when the original is absent, and which one was used is
+# recorded in every row so the provenance travels with the corpus.
+PRODUCTS_MIRROR = ESCI_DIR / "products_us_mirror.parquet"
 
 GRADE = {"I": 0, "C": 1, "S": 2, "E": 3}
 PER_QUERY = {"E": 4, "S": 4, "C": 2, "I": 2}
@@ -51,13 +57,26 @@ MAX_CHARS = {"product_description": 600, "product_bullet_point": 600}
 
 
 def build(n_queries: int, seed: int) -> list[dict]:
-    for f in (EXAMPLES, PRODUCTS):
-        if not f.exists():
-            sys.exit(f"missing {f}: download the two parquet files from "
-                     "github.com/amazon-science/esci-data into .data/esci/")
+    if not EXAMPLES.exists():
+        sys.exit(f"missing {EXAMPLES}: download it from "
+                 "github.com/amazon-science/esci-data into .data/esci/")
     con = duckdb.connect()
+    products = None
+    if PRODUCTS.exists():
+        try:  # a download still in progress has no parquet footer yet
+            con.execute(f"SELECT count(*) FROM parquet_metadata('{PRODUCTS}')")
+            products = PRODUCTS
+        except duckdb.Error as e:
+            print(f"note: {PRODUCTS.name} is not readable ({str(e)[:60]}); using the mirror",
+                  file=sys.stderr)
+    if products is None:
+        if not PRODUCTS_MIRROR.exists():
+            sys.exit(f"missing {PRODUCTS} (original) and {PRODUCTS_MIRROR} (mirror)")
+        products = PRODUCTS_MIRROR
+    source = "amazon-science/esci-data" if products == PRODUCTS \
+        else "huggingface:spacemanidol/ESCI-product-dataset-corpus-us (US re-encoding)"
     con.execute(f"CREATE VIEW ex AS SELECT * FROM '{EXAMPLES}'")
-    con.execute(f"CREATE VIEW pr AS SELECT * FROM '{PRODUCTS}'")
+    con.execute(f"CREATE VIEW pr AS SELECT * FROM '{products}'")
     qids = [r[0] for r in con.execute("""
         SELECT query_id FROM ex
         WHERE product_locale = 'us' AND small_version = 1 AND split = 'test'
@@ -102,6 +121,7 @@ def build(n_queries: int, seed: int) -> list[dict]:
                     "choice_label": lab,
                     "stratum": lab,
                     "label_confident": True,       # every label is a human grade
+                    "products_source": source,
                 })
     return rows
 

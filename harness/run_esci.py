@@ -176,6 +176,7 @@ def analyze(rows, responses) -> dict:
             # a well-behaved P(E) should still order S above C above I.
             "ranking_vs_grade": M.rank_metrics(p[ok], g[ok]),
             "within_query_vs_grade": within_query(p[ok], g[ok], [q for q, o in zip(qids, ok) if o]),
+            "ranking_vs_grade_excluding_C": M.rank_metrics(p[ok & (g != 1)], g[ok & (g != 1)]),
             "sort_key_resolution": M.sort_key_resolution(p[ok]),
             "mean_prob_by_grade": {
                 GRADE_NAMES[k]: float(p[ok & (g == k)].mean()) for k in range(4) if (ok & (g == k)).any()
@@ -235,6 +236,13 @@ def analyze(rows, responses) -> dict:
             # The measured (not proxied) graded ranking.
             "ranking_vs_grade": M.rank_metrics(sc[m], g[m]),
             "within_query_vs_grade": within_query(sc[m], g[m], [q for q, o in zip(qids, m) if o]),
+            # C ("complement") is placed between I and S by the KDD Cup gain
+            # order, but whether it is truly an ordinal step is arguable, so
+            # the graded ranking is also reported with C rows removed.
+            "ranking_vs_grade_excluding_C": M.rank_metrics(sc[m & (g != 1)], g[m & (g != 1)]),
+            "within_query_vs_grade_excluding_C": within_query(
+                sc[m & (g != 1)], g[m & (g != 1)],
+                [q for q, o, gg in zip(qids, m, g) if o and gg != 1]),
             "sort_key_resolution": M.sort_key_resolution(sc[m]),
             "mean_score_by_grade": {
                 GRADE_NAMES[k]: float(sc[m & (g == k)].mean()) for k in range(4) if (m & (g == k)).any()
