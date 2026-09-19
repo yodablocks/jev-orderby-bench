@@ -5,7 +5,7 @@ so a silent bug in the metric layer produces confident wrong findings
 rather than a crash. Every case below has a value computed by hand or by
 an independent identity.
 
-Run: python3 tools/duckdb-jev/harness/test_metrics.py
+Run: python3 harness/test_metrics.py
 """
 
 import sys
