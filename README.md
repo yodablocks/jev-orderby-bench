@@ -21,6 +21,15 @@ rows sent through recodelabs' default 40-row batching **fail the ranking
 gate** (inversion 0.171 against 0.15) that they pass one row per
 request. See [Results](#results) and [Request shape](#request-shape-the-integration-changes-the-numbers).
 
+**Headline 2 (2026-09-19): on the hard probe it fails.** Amazon ESCI, 306
+human-graded query-product pairs over 30 hard shopping queries:
+`jev_bool` ECE 0.242 and inversion 0.255; `jev_score` inversion 0.254
+against the 4-level human grade, 0.244 inside a single query's result
+list, 23 of 30 queries over the threshold; choice confidence ECE 0.279.
+Negation symmetry still holds (0.023) while a plain paraphrase moves the
+answer by 0.164 on average. Four of six gate conditions fail. See
+[Hard probe](#hard-probe-graded-product-relevance-esci).
+
 Run: 360 rows, 350 fresh requests, 359,013 tokens (~999/row), about $0.013.
 
 ## Where this sits
@@ -201,6 +210,98 @@ integration that packs rows into one state, measure the position effect
 on your own data before sorting on the result. colliber sends one row
 per request and does not have this problem; Query-farm/vgi-typesafe
 was not measured.
+
+## Hard probe: graded product relevance (ESCI)
+
+The 20 Newsgroups result is topic membership, an easy judgment, and its
+graded-ranking figure was measured against a 3-level sampling stratum.
+The [Amazon Shopping Queries Dataset](https://github.com/amazon-science/esci-data)
+(ESCI, Apache 2.0) removes both weaknesses: every query-product pair
+carries one of four human grades, Exact > Substitute > Complement >
+Irrelevant (the KDD Cup 2022 gain order), Amazon filtered the easy
+queries out of the `small_version`, and product search is what a
+semantic `ORDER BY` will actually be run on.
+
+Corpus: US locale, test split, 30 queries drawn at random from the 1,148
+that carry all four grades, up to 4 E, 4 S, 2 C, 2 I products per query:
+**306 rows** (E 111, S 94, C 45, I 56). State is the JSON object
+`{query, product{title, brand, colour, bullet_points, description}}`;
+text fields are cut at 600 characters. Same questions in kind as before
+(a noul, its mechanical negation, a paraphrase, a 4-way choice, a 4-level
+score and its reversed twin), same pre-registered gate. 296 requests,
+355,682 tokens, about $0.015. `harness/run_esci.py`, results in
+`results/esci.json`.
+
+| | 20 Newsgroups | **ESCI** | Gate |
+|---|---|---|---|
+| `jev_bool` ECE | 0.045 | **0.242** | ≤ 0.10 **✗** |
+| `jev_bool` inversion (E vs rest) | 0.036 | **0.255** | ≤ 0.15 **✗** |
+| `jev_bool` AUC | 0.964 | 0.745 | |
+| `jev_bool` resolution | 0.182 | 0.043 | > 0 ✓ |
+| `jev_score` inversion vs graded target | 0.143 (3-level proxy) | **0.254** (4-level human) | ≤ 0.15 **✗** |
+| `jev_score` inversion, C rows removed | | 0.265 | |
+| `jev_score` Spearman vs grade | 0.744 | 0.538 | |
+| `jev_score` within-query inversion | | 0.244; 23 of 30 queries > 0.15 | |
+| `jev_choice` accuracy | 0.875 (6-way) | 0.490 (4-way) | |
+| `jev_choice` confidence ECE | 0.077 | **0.279** | ≤ 0.10 **✗** |
+| negation asymmetry | 0.016 | 0.023 | ≤ 0.15 ✓ |
+| paraphrase sensitivity | 0.016 | **0.164** | |
+
+**1. Underconfidence stops being benign.** Every one of the ten
+reliability bins sits above the diagonal: a predicted 0.43 is observed
+at 0.80, a predicted 0.013 at 0.23. The mean P(exact) on true exact
+matches is 0.195; the highest probability in the corpus is 0.75. On the
+newsgroups the same bias was harmless because the ordering survived it;
+here resolution is 0.043 and AUC 0.745, so the model is barely
+separating the classes, and `WHERE p >= 0.5` keeps a handful of rows out
+of 111 exact matches.
+
+**2. The sort key fails inside a query, not just across the corpus.**
+Inversion against the human grade is 0.254 over all pairs and 0.244
+averaged within each query's own result list, which is the `ORDER BY` a
+shopper sees; 23 of 30 queries exceed 0.15. Removing Complement rows,
+whose place in the order is debatable, gives 0.265, so the failure is
+not an artefact of that grade. Mean score by grade: I 1.21, **C 1.14**,
+S 1.78, E 2.09. Complements are ranked below irrelevant products: the
+rubric's second level is not recognised. And yet the reversed-rubric
+mirror check still passes (correlation 0.99, mean error 2% of scale).
+The scale is ordinal to the model and wrong. The invariants section
+below says passing an invariant does not imply correctness; this is
+what that looks like.
+
+**3. Choice collapses onto Substitute.** 168 of 306 rows are predicted
+Substitute; 63 of the 111 true Exacts among them. Stated confidence
+carries no information: at confidence 1.0, 53% of picks are right.
+
+**4. Wording moves the answer seven times more than negation does.**
+Negation symmetry holds as well as it did on the newsgroups (0.023).
+The paraphrase control, two questions we consider equivalent, disagrees
+by 0.164 on average and by 0.52 at the 95th percentile. On the easy
+corpus the two were equal (ratio 1.01); here the ratio is 0.14. The
+negation invariant is not evidence of stability; the paraphrase control
+is the number that matters, and on hard judgments it is large.
+
+**5. The ties are gone.** 170 distinct score values over 306 rows, 0.9%
+of pairs tied (15% on the newsgroups); 47 distinct probabilities, one
+row at the maximum. The tie problem in finding 4 above was
+corpus-driven, as stated there; the two-decimal cap is not.
+
+**What this does and does not say.** On a realistic `ORDER BY` workload,
+`jev-1.13.0` zero-shot with these questions does not pass a gate it
+cleared comfortably on topic membership. That is one hard task, one
+question set, one seed, 30 queries; trained cross-encoders reach far
+higher on ESCI and were not compared. It does not say every hard task
+fails. It says the easy result was the upper bound the README called it,
+and that the measurement has to be made on your data, which is what the
+harness is for. Caveats specific to this probe: the E/S boundary is
+subtle even for the human annotators; the question wording is strict
+("including every attribute the query states") and the paraphrase
+result shows wording matters; product text was truncated; and the
+product fields came from a Hugging Face re-encoding of Amazon's file
+(`spacemanidol/ESCI-product-dataset-corpus-us`, same product IDs)
+because the 1.1 GB original downloads at 60 KB/s from here. The source
+is recorded in every corpus row; a field-by-field check of the 306
+products against the original is pending its download.
 
 ## Why the measurement comes before the SQL
 
@@ -410,6 +511,13 @@ python3 harness/test_pipeline.py    # end-to-end against a mock Jev server
 python3 harness/run_calibration.py --pilot   # 10 rows + cost extrapolation
 python3 harness/run_calibration.py           # full run
 python3 harness/run_calibration.py --analyze-only   # recompute, no spend
+
+# hard probe: ESCI (examples file from github.com/amazon-science/esci-data,
+# products from the original file or the Hugging Face US re-encoding)
+python3 harness/corpus_esci.py            # 30 queries, ~306 rows
+python3 harness/test_esci.py              # offline, mock server
+python3 harness/run_esci.py --pilot       # 10 rows + cost estimate
+python3 harness/run_esci.py               # full run, ~$0.015
 ```
 
 `harness/udf.py` additionally needs `pip install duckdb` (run it yourself; this
@@ -480,7 +588,8 @@ Score returns a probability-weighted mean over level **indices**, so an
   property of model *and* domain; these numbers will not transfer to
   contracts, tickets or governance proposals without re-running.
 - **Topic membership is an easy judgment**, so treat the results as an
-  upper bound on harder ORDER BY workloads.
+  upper bound on harder ORDER BY workloads. The ESCI probe confirms it:
+  the same gate fails there.
 - **~120 rows per probe.** Ten-bin ECE is noisy at that size. Bins carry
   Wilson intervals and adaptive (equal-mass) binning is the default; read
   the intervals, not the third decimal.
@@ -520,6 +629,9 @@ harness/metrics.py          calibration + ranking + invariants + gate
 harness/run_calibration.py  scoring run, analysis, reliability diagram
 harness/udf.py              reference DuckDB functions (gated on results.json)
 harness/run_shapes.py       request-shape comparison across integrations
+harness/corpus_esci.py      hard-probe corpus from Amazon ESCI
+harness/run_esci.py         hard-probe run: graded ranking, within-query
+harness/test_esci.py        offline test of the ESCI runner
 harness/test_metrics.py     known-answer tests for every metric
 harness/test_pipeline.py    end-to-end test against a mock Jev server,
                             plus secret-hygiene assertions
@@ -527,6 +639,7 @@ harness/test_pipeline.py    end-to-end test against a mock Jev server,
 notebook/calibration.ipynb  the publishable artifact
 results/                    results.json + reliability.png (after a run)
                             shapes.json (after run_shapes.py)
+                            esci.json + reliability_esci.png (after run_esci.py)
 ```
 
 Corpus and cached responses live in `.data/jev-calibration/` (gitignored):
