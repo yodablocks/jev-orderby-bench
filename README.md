@@ -66,6 +66,13 @@ them, because the scale is coarse enough that a sorted page is partly
 arbitrary. It also ships its own labeled cases, on the argument made here
 that a thing built on Jev should say what it catches.
 
+[jobbyjev](https://github.com/yodablocks/jobbyjev) is mine too, and is the
+clearest case of a measurement here changing a design. It ranks companies for
+one candidate, and it sends one request per company rather than batching them,
+because the batch-size result below is the difference between passing the
+ranking gate and failing it. Ranking is the whole product there, so it pays
+the extra requests.
+
 [jevq](https://github.com/yodablocks/jevq) is the other end of the same
 problem, and also mine. Where this repo asks whether Jev's probabilities
 can be trusted, jevq asks whether the question put to it was well formed,
