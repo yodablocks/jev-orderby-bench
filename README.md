@@ -66,6 +66,14 @@ them, because the scale is coarse enough that a sorted page is partly
 arbitrary. It also ships its own labeled cases, on the argument made here
 that a thing built on Jev should say what it catches.
 
+[jevq](https://github.com/yodablocks/jevq) is the other end of the same
+problem, and also mine. Where this repo asks whether Jev's probabilities
+can be trusted, jevq asks whether the question put to it was well formed,
+by checking a question's text against the failure modes TypeSafe documents.
+It needs no API call and no labelled data, so it catches a strict subset:
+the mistakes visible by reading. Whether a question actually separates the
+cases you care about still takes a measured run like this one.
+
 **Reproduce:** `python3 harness/run_calibration.py` with a key. At the
 published price of $0.042 per million input tokens (output is free), the
 full run costs about **$0.013**. Responses are cached locally, so once
